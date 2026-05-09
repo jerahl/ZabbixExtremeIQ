@@ -5,7 +5,7 @@ Two Zabbix 7.x dashboard widgets for Extreme Networks access points:
 - **`apdetail/` — AP Detail.** Single-AP deep-dive that joins live data from Zabbix, Extreme Cloud IQ (XIQ), and PacketFence (PF) into eight tabs (Overview, Wireless, Wired, Clients, Events, Alerts, Graphs, Latest Data).
 - **`xiq_ap_status/` — Extreme XIQ AP Status.** Fleet-wide table of XIQ-discovered APs with per-row operational actions (reboot, manage/unmanage, refresh, allow-listed `show` commands).
 
-Both widgets target Extreme **AP_305C** hardware running IQ Engine 10.7rx, deployed against Zabbix 7.0 / 7.2 / 7.4 with PHP 8.0.30 and PacketFence 15. They share the same Extreme XIQ APs by API template.
+Both widgets tested with Extreme **AP_305C** hardware running IQ Engine 10.7rx, deployed against Zabbix 7.4 with PHP 8.0.30 and PacketFence 15. They share the same Extreme XIQ APs by API template.
 
 ---
 
@@ -191,8 +191,6 @@ After any change to either `manifest.json`, **delete and re-add every existing w
 | **M3 — Wireless + Wired tabs** | In progress (parallel with M2) |
 | **M4 — Clients tab** | Queued |
 | **M5 — Events / Alerts / Sidecar / E2E** | Queued |
-
-Pilot host: `BHS-56-Hallway` · `172.16.97.59` · Zabbix host id `10847` · XIQ device id `70849781384129`.
 
 ### Known carry-over fixes
 
