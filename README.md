@@ -1,12 +1,15 @@
-# ZabbixExtremeIQ — AP Detail Dashboard
+# ZabbixExtremeIQ — Extreme AP dashboard widgets for Zabbix
 
-A Zabbix 7.x dashboard widget that surfaces a single Extreme Networks access point's full operational picture by joining live data from Zabbix, Extreme Cloud IQ (XIQ), and PacketFence (PF).
+Two Zabbix 7.x dashboard widgets for Extreme Networks access points:
 
-The widget targets Extreme **AP_305C** hardware running IQ Engine 10.7rx, deployed against Zabbix 7.0 / 7.2 / 7.4 with PHP 8.0.30 and PacketFence 15.
+- **`apdetail/` — AP Detail.** Single-AP deep-dive that joins live data from Zabbix, Extreme Cloud IQ (XIQ), and PacketFence (PF) into eight tabs (Overview, Wireless, Wired, Clients, Events, Alerts, Graphs, Latest Data).
+- **`xiq_ap_status/` — Extreme XIQ AP Status.** Fleet-wide table of XIQ-discovered APs with per-row operational actions (reboot, manage/unmanage, refresh, allow-listed `show` commands).
+
+Both widgets target Extreme **AP_305C** hardware running IQ Engine 10.7rx, deployed against Zabbix 7.0 / 7.2 / 7.4 with PHP 8.0.30 and PacketFence 15. They share the same Extreme XIQ APs by API template.
 
 ---
 
-## What it does
+## AP Detail widget (`apdetail/`)
 
 Renders eight tabs for a selected AP host:
 
@@ -19,11 +22,68 @@ Renders eight tabs for a selected AP host:
 
 ---
 
+## XIQ AP Status widget (`xiq_ap_status/`)
+
+Fleet-level companion widget. Renders a sortable table of every AP discovered by the **Extreme XIQ APs by API** template on a chosen Zabbix host (defaults to 1500 rows), with a per-row kebab menu for operational actions.
+
+### Table
+
+Reads template-created items (`xiq.ap.connected[*]`, `xiq.ap.clients[*]`, etc.) joined on the `ap_serial` / `ap_mac` / `ap_id` tags. Re-import the template if those tags are missing.
+
+### Per-row actions (all OFF by default)
+
+| Action | Required XIQ token scope |
+|---|---|
+| Reboot AP | `device:reboot` |
+| Set Managed | `device:manage` |
+| Set Unmanaged | `device:unmanage` |
+| Run `show` command (allow-listed) | `device:cli` |
+| Refresh now / LRO polling | `lro:r` |
+
+The CLI dropdown enforces a hard-coded `show ` prefix plus a configurable allow-list. Mutating commands are blocked even if they reach the allow-list.
+
+### Action token security model (Path C — file-based)
+
+The XIQ action token never enters the database, the browser, or the Zabbix API. It lives only on the Zabbix frontend filesystem:
+
+```
+/etc/zabbix/secrets/xiq_action_token        owner root:apache, mode 0640
+/etc/zabbix/secrets/                        mode 0750
+```
+
+The widget config field **Action token file path** accepts only files under `/etc/zabbix/secrets/`; `realpath()` is used before the prefix check so symlink escape is also blocked. To rotate, write the new token atomically (`mv` from a sibling file) — no widget edit, no dashboard reload, no restart.
+
+### Permission model
+
+| Capability | Required Zabbix user type |
+|---|---|
+| See the widget | Any user with read access to the XIQ host |
+| See action menu items | Zabbix Admin or Super Admin |
+| Fire actions | Zabbix Admin or Super Admin (also enforced server-side in `WidgetAction.php`) |
+| Read the action token file | Apache process only (filesystem perms) |
+
+Every action — success or failure — writes to Zabbix's audit log (userid, source IP, op, device IDs, LRO id or error, plus a 4 KB excerpt of CLI output).
+
+### "Open in XIQ" / Extreme Platform ONE
+
+Default admin URL is `https://extremeplatformone.com` (Extreme migrated the customer-facing UI from `extremecloudiq.com` to EP1 in late 2025). EP1 is a single-page app and doesn't update its URL on navigation, so the kebab menu's **Open in XIQ** link also copies the AP serial to the clipboard for paste-and-search inside EP1's filter bar. The legacy `{id}` placeholder in the device path is still substituted for sites still on the deep-linkable UI.
+
+### Known limitations
+
+- No bulk multi-row actions (XIQ endpoints support it; UI work only).
+- No per-AP managed-state column in the table — both Managed and Unmanaged appear in every menu.
+- CLI is single-device only.
+- Multi-frontend Zabbix deployments must place the token file on every frontend node; it is not synchronized automatically.
+
+The widget's own README at `xiq_ap_status/README.md` carries the full installation, token-rotation, and troubleshooting guide.
+
+---
+
 ## Repository layout
 
 ```
 ZabbixExtremeIQ/
-├── apdetail/                          AP Detail widget (this project)
+├── apdetail/                          AP Detail widget (single-AP deep-dive)
 │   ├── manifest.json
 │   ├── Widget.php                     extends Zabbix\Core\CWidget
 │   ├── actions/WidgetView.php
@@ -31,19 +91,27 @@ ZabbixExtremeIQ/
 │   │   ├── WidgetForm.php
 │   │   ├── XIQClient.php              XIQ Cloud API client
 │   │   └── PFClient.php               PacketFence API client
-│   ├── views/
-│   │   ├── widget.view.php
-│   │   └── widget.edit.php
-│   └── assets/
-│       ├── js/class.widget.js
-│       └── css/widget.css
-├── xiq_ap_status/                     companion XIQ status widget
+│   ├── views/{widget.view,widget.edit}.php
+│   └── assets/{js/class.widget.js, css/widget.css}
+├── xiq_ap_status/                     XIQ AP Status widget (fleet table + actions)
+│   ├── manifest.json
+│   ├── Widget.php
+│   ├── actions/
+│   │   ├── WidgetView.php
+│   │   └── WidgetAction.php           reboot / manage / unmanage / cli / refresh
+│   ├── includes/WidgetForm.php
+│   ├── views/{widget.view,widget.edit}.php
+│   ├── assets/{js/class.widget.js, css/widget.css}
+│   └── README.md                      install + action-token + audit guide
 ├── templates/                         Zabbix templates (see below)
 └── Zabbix Extreme/                    project plan, references, mockups
 ```
 
-**Install path:** `/usr/share/zabbix/ui/modules/apdetail/`
-**PHP namespace:** `Modules\APDetail\…` (must be globally unique across all Zabbix modules).
+**Install paths:**
+`/usr/share/zabbix/ui/modules/apdetail/`
+`/usr/share/zabbix/modules/xiq_ap_status/`
+
+**PHP namespaces:** `Modules\APDetail\…` and `Modules\XiqApStatus\…` — both must be globally unique across all installed Zabbix modules.
 
 ---
 
@@ -78,26 +146,32 @@ No Composer, no npm — Zabbix modules load inside the Zabbix PHP process and us
 
 ## Installation
 
-1. Copy `apdetail/` into the Zabbix UI module directory:
+1. Copy each widget into Zabbix's modules location:
    ```
    /usr/share/zabbix/ui/modules/apdetail/
+   /usr/share/zabbix/modules/xiq_ap_status/
    ```
-2. In Zabbix → **Administration → General → Modules**, scan the directory and enable **AP Detail**.
-3. Import both Extreme templates from `templates/` into Zabbix.
-4. Add the widget to a dashboard. Pair it with a **Host Navigator** widget so it can receive the broadcast `_hostid`.
-5. Configure the widget's host field, and provide XIQ + PF credentials via the macros referenced by the templates.
+2. In Zabbix → **Administration → General → Modules**, scan the directory and enable **AP Detail** and **Extreme XIQ AP Status**.
+3. Import the Extreme templates from `templates/` into Zabbix.
+4. Add the widgets to a dashboard:
+   - **AP Detail**: pair with a **Host Navigator** so it can receive the broadcast `_hostid`. Configure XIQ + PF credentials via the macros referenced by the templates.
+   - **XIQ AP Status**: set the XIQ host (the Zabbix host with the XIQ template linked). To enable per-row actions, mint an XIQ API token with the required scopes and place it at `/etc/zabbix/secrets/xiq_action_token` (owner `root:apache`, mode `0640`), then flip on the desired action toggles. Full step-by-step in `xiq_ap_status/README.md`.
 
-After any change to `manifest.json`, **delete and re-add every existing `apdetail` widget instance on every dashboard** — Zabbix only assigns the broadcast `reference` at widget-creation time.
+After any change to either `manifest.json`, **delete and re-add every existing widget instance on every dashboard** — Zabbix only assigns broadcast `reference` values at widget-creation time.
 
 ---
 
 ## Broadcast contract
+
+**AP Detail** (`apdetail/`):
 
 | Wire string | Direction | Meaning |
 |---|---|---|
 | `_hostid` | IN | Host selected via the widget form, or pushed by an upstream Host Navigator. |
 | `_timeperiod` | IN | Dashboard time-range changes. |
 | `_itemids` | OUT | Emitted when the user clicks a sparkline; drives a native Graph (classic) widget. |
+
+**XIQ AP Status** (`xiq_ap_status/`) broadcasts `_hostid` / `_hostids` outbound when an AP row is selected, so it can drive an `apdetail` widget on the same dashboard.
 
 ### sessionStorage keys
 
